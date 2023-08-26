@@ -26,9 +26,10 @@ class CSVFileLogger(BaseLogger):
 
         self.eval_csv_log_writer = csv.DictWriter(self.eval_file_handler,
                                                   fieldnames=[ "test/reward","test/reward_std", "test/length","test/length_std",
-                                                              "test/env_step"])
+                                                              "test/env_step", "eval/mean_reward"])
 
-        self.train_csv_log_writer = csv.DictWriter(self.train_file_handler, fieldnames=['train/reward','train/length',"train/episode","train/env_step"])
+        self.train_csv_log_writer = csv.DictWriter(self.train_file_handler, fieldnames=['train/reward','train/length',"train/episode","train/env_step",
+                                                                                        "rollout/ep_rew_mean"])
 
         self.eval_csv_log_writer.writeheader()
         self.train_csv_log_writer.writeheader()
@@ -53,7 +54,8 @@ class CSVFileLogger(BaseLogger):
                     "train/episode": collect_result["n/ep"],
                     "train/reward": collect_result["rew"],
                     "train/length": collect_result["len"],
-                    "train/env_step":step
+                    "train/env_step":step,
+                    "rollout/ep_rew_mean": collect_result["rew"],
                 }
                 self.train_csv_log_writer.writerow(log_data)
                 self.train_file_handler.flush()
@@ -74,7 +76,7 @@ class CSVFileLogger(BaseLogger):
                 "test/length": collect_result["len"],
                 "test/reward_std": collect_result["rew_std"],
                 "test/length_std": collect_result["len_std"],
-
+                "eval/mean_reward": collect_result["rew"],
             }
             self.eval_csv_log_writer.writerow(log_data)
             self.eval_file_handler.flush()

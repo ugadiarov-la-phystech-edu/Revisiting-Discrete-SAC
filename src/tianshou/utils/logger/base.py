@@ -54,6 +54,7 @@ class BaseLogger(ABC):
                     "train/episode": collect_result["n/ep"],
                     "train/reward": collect_result["rew"],
                     "train/length": collect_result["len"],
+                    "rollout/ep_rew_mean": collect_result["rew"],
                 }
                 self.write("train/env_step", step, log_data)
                 self.last_log_train_step = step
@@ -73,6 +74,7 @@ class BaseLogger(ABC):
                 "test/length": collect_result["len"],
                 "test/reward_std": collect_result["rew_std"],
                 "test/length_std": collect_result["len_std"],
+                "eval/mean_reward": collect_result["rew"],
             }
             self.write("test/env_step", step, log_data)
             self.last_log_test_step = step
