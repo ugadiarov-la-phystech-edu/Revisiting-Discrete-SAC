@@ -44,7 +44,7 @@ def get_args():
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--n-step", type=int, default=3)
     parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--alpha", type=float, default=0.05)
+    parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--auto-alpha", action="store_true", default=False)
     parser.add_argument("--alpha-lr", type=float, default=3e-4)
     parser.add_argument("--epoch", type=int, default=200)
@@ -156,7 +156,7 @@ def test_discrete_sac(args=get_args()):
 
     # define policy
     if args.auto_alpha:
-        target_entropy = 0.98 * np.log(np.prod(args.action_shape))
+        target_entropy = args.alpha * 0.98 * np.log(np.prod(args.action_shape))
         log_alpha = torch.zeros(1, requires_grad=True, device=args.device)
         alpha_optim = torch.optim.Adam([log_alpha], lr=args.alpha_lr)
         args.alpha = (target_entropy, log_alpha, alpha_optim)
