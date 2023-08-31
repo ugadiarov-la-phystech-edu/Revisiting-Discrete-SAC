@@ -144,88 +144,113 @@ class DiscreteSACDevPolicy(SACPolicy):
 
 
     def learn(self, batch: Batch, **kwargs: Any) -> Dict[str, float]:
+        need_update_critic = kwargs.get('update_critic', True)
+        need_update_actor = kwargs.get('update_actor', True)
         state_dict = dict()
+        result = {"state/reward": batch.rew.mean().item(), "state/cal_return": batch.cal_return.mean().item()}
         old_entropy = batch.pop("old_entropy", None)
 
-        weight = batch.pop("weight", 1.0)
-        target_q = batch.returns.flatten()
-        act = to_torch(
-            batch.act[:, np.newaxis], device=target_q.device, dtype=torch.long
-        )
+        if need_update_critic:
+            weight = batch.pop("weight", 1.0)
+            target_q = batch.returns.flatten()
+            act = to_torch(
+                batch.act[:, np.newaxis], device=target_q.device, dtype=torch.long
+            )
 
-        # critic 1
-        current_q1 = self.critic1(batch.obs).gather(1, act).flatten()
-        td1 = current_q1 - target_q
-        clipq_ratio = 0.0
+            # critic 1
+            current_q1 = self.critic1(batch.obs).gather(1, act).flatten()
+            td1 = current_q1 - target_q
+            clipq_ratio = 0.0
 
-        if self.use_clip_q:
-            with torch.no_grad():
-                q1_old = self.critic1_old(batch.obs).gather(1, act).flatten()
-            clipped_q1 = q1_old + torch.clamp(current_q1 - q1_old, -self.clip_q_epsilon,
-                                              self.clip_q_epsilon)
-            q1_loss_1 = F.mse_loss(current_q1, target_q) * weight
-            q1_loss_2 = F.mse_loss(clipped_q1, target_q) * weight
-            critic1_loss = torch.maximum(q1_loss_1, q1_loss_2)
-            clipq_ratio = torch.mean((q1_loss_2 >= q1_loss_1).float()).item()
-            state_dict['state/clipped_q1'] = clipped_q1.mean().item()
-        else:
-            critic1_loss = (td1.pow(2) * weight).mean()
+            if self.use_clip_q:
+                with torch.no_grad():
+                    q1_old = self.critic1_old(batch.obs).gather(1, act).flatten()
+                clipped_q1 = q1_old + torch.clamp(current_q1 - q1_old, -self.clip_q_epsilon,
+                                                  self.clip_q_epsilon)
+                q1_loss_1 = F.mse_loss(current_q1, target_q) * weight
+                q1_loss_2 = F.mse_loss(clipped_q1, target_q) * weight
+                critic1_loss = torch.maximum(q1_loss_1, q1_loss_2)
+                clipq_ratio = torch.mean((q1_loss_2 >= q1_loss_1).float()).item()
+                state_dict['state/clipped_q1'] = clipped_q1.mean().item()
+            else:
+                critic1_loss = (td1.pow(2) * weight).mean()
 
-        self.critic1_optim.zero_grad()
-        critic1_loss.backward()
-        self.critic1_optim.step()
+            self.critic1_optim.zero_grad()
+            critic1_loss.backward()
+            self.critic1_optim.step()
 
-        # critic 2
-        current_q2 = self.critic2(batch.obs).gather(1, act).flatten()
-        td2 = current_q2 - target_q
-        if self.use_clip_q:
-            with torch.no_grad():
-                q2_old = self.critic2_old(batch.obs).gather(1, act).flatten()
-            clipped_q2 = q2_old + torch.clamp(current_q2 - q2_old, -self.clip_q_epsilon,
-                                              self.clip_q_epsilon)
+            # critic 2
+            current_q2 = self.critic2(batch.obs).gather(1, act).flatten()
+            td2 = current_q2 - target_q
+            if self.use_clip_q:
+                with torch.no_grad():
+                    q2_old = self.critic2_old(batch.obs).gather(1, act).flatten()
+                clipped_q2 = q2_old + torch.clamp(current_q2 - q2_old, -self.clip_q_epsilon,
+                                                  self.clip_q_epsilon)
 
-            q2_loss_1 = F.mse_loss(current_q2, target_q) * weight
-            q2_loss_2 = F.mse_loss(clipped_q2, target_q) * weight
-            critic2_loss = torch.maximum(q2_loss_1, q2_loss_2)
-            clipq_ratio = (clipq_ratio + torch.mean((q2_loss_2 >= q2_loss_1).float()).item()) / 2.0
-            state_dict['state/clipped_q2'] = clipped_q2.mean().item()
-        else:
-            critic2_loss = (td2.pow(2) * weight).mean()
+                q2_loss_1 = F.mse_loss(current_q2, target_q) * weight
+                q2_loss_2 = F.mse_loss(clipped_q2, target_q) * weight
+                critic2_loss = torch.maximum(q2_loss_1, q2_loss_2)
+                clipq_ratio = (clipq_ratio + torch.mean((q2_loss_2 >= q2_loss_1).float()).item()) / 2.0
+                state_dict['state/clipped_q2'] = clipped_q2.mean().item()
+            else:
+                critic2_loss = (td2.pow(2) * weight).mean()
 
-        self.critic2_optim.zero_grad()
-        critic2_loss.backward()
-        self.critic2_optim.step()
-        batch.weight = (td1 + td2) / 2.0  # prio-buffer
+            self.critic2_optim.zero_grad()
+            critic2_loss.backward()
+            self.critic2_optim.step()
+            batch.weight = (td1 + td2) / 2.0  # prio-buffer
 
-        # actor
+            result.update({
+                "loss/critic1": critic1_loss.item(),
+                "loss/critic2": critic2_loss.item(),
+                "state/q1": current_q1.mean().item(),
+                "state/q2": current_q2.mean().item(),
+                "state/q_targe": target_q.mean().item(),  # q_backup
+            })
+
+            if self.use_clip_q:
+                result['clip_ratio'] = clipq_ratio
+
         dist = self(batch).dist
         entropy = dist.entropy()
-        with torch.no_grad():
-            current_q1a = self.critic1(batch.obs)
-            current_q2a = self.critic2(batch.obs)
+        result["state/entropy"] = entropy.mean().item()
+        # actor
+        if need_update_actor:
+            with torch.no_grad():
+                current_q1a = self.critic1(batch.obs)
+                current_q2a = self.critic2(batch.obs)
 
-            if self.use_avg_q:
-                q = torch.mean(torch.stack([current_q1a, current_q2a], dim=-1), dim=-1)
+                if self.use_avg_q:
+                    q = torch.mean(torch.stack([current_q1a, current_q2a], dim=-1), dim=-1)
 
-                min_q = torch.min(current_q1a, current_q2a).detach()
-                state_dict['state/avgq/min_q'] = min_q.mean().item()
-            else:
-                q = torch.min(current_q1a, current_q2a)
+                    min_q = torch.min(current_q1a, current_q2a).detach()
+                    state_dict['state/avgq/min_q'] = min_q.mean().item()
+                else:
+                    q = torch.min(current_q1a, current_q2a)
 
-        actor_loss = -(self._alpha * entropy + (dist.probs * q).sum(dim=-1)).mean()
+            actor_loss = -(self._alpha * entropy + (dist.probs * q).sum(dim=-1)).mean()
 
-        if self.use_entropy_penalty:
-            old_entropy = to_torch(
-                old_entropy, device=entropy.device, dtype=torch.float
-            )
-            entropy_loss = F.mse_loss(old_entropy, entropy)
-            state_dict['loss/entropy_loss'] = entropy_loss.item()
-            state_dict['state/old_entropy'] = old_entropy.mean().item()
-            actor_loss = actor_loss + self.entropy_penalty_beta * entropy_loss
+            if self.use_entropy_penalty:
+                old_entropy = to_torch(
+                    old_entropy, device=entropy.device, dtype=torch.float
+                )
+                entropy_loss = F.mse_loss(old_entropy, entropy)
+                state_dict['loss/entropy_loss'] = entropy_loss.item()
+                state_dict['state/old_entropy'] = old_entropy.mean().item()
+                actor_loss = actor_loss + self.entropy_penalty_beta * entropy_loss
 
-        self.actor_optim.zero_grad()
-        actor_loss.backward()
-        self.actor_optim.step()
+            self.actor_optim.zero_grad()
+            actor_loss.backward()
+            self.actor_optim.step()
+
+            result.update({
+                "loss/actor": actor_loss.item(),
+                "state/entropy": entropy.mean().item(),
+                "state/min_q": q.mean().item(),
+                # "state/logpisum":
+                "state/min_q_pi": (dist.probs * q).sum(dim=-1).mean().item(),
+            })
 
         if self._is_auto_alpha:
             log_prob = -entropy.detach() + self._target_entropy
@@ -237,21 +262,6 @@ class DiscreteSACDevPolicy(SACPolicy):
 
         self.sync_weight()
 
-        result = {
-            "loss/actor": actor_loss.item(),
-            "loss/critic1": critic1_loss.item(),
-            "loss/critic2": critic2_loss.item(),
-            "state/entropy": entropy.mean().item(),
-            "state/q1": current_q1.mean().item(),
-            "state/q2": current_q2.mean().item(),
-            "state/q_targe": target_q.mean().item(), # q_backup
-            "state/min_q":q.mean().item(),
-            # "state/logpisum":
-            "state/min_q_pi": (dist.probs * q).sum(dim=-1).mean().item(),
-            "state/reward": batch.rew.mean().item(),
-            "state/cal_return":batch.cal_return.mean().item(),
-
-        }
         result.update(state_dict)
 
         if self._is_auto_alpha:
@@ -259,8 +269,6 @@ class DiscreteSACDevPolicy(SACPolicy):
             result["alpha"] = self._alpha.item()  # type: ignore
         else:
             result["alpha"] = self._alpha  # type: ignore
-        if self.use_clip_q:
-            result['clip_ratio'] = clipq_ratio
         return result
 
 

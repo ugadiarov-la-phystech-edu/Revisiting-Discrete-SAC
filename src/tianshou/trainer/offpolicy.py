@@ -75,7 +75,8 @@ class OffpolicyTrainer(BaseTrainer):
         step_per_collect: int,
         episode_per_test: int,
         batch_size: int,
-        update_per_step: Union[int, float] = 1,
+        update_actor_per_step: Union[int, float] = 1,
+        update_critic_per_step: Union[int, float] = 1,
         train_fn: Optional[Callable[[int, int], None]] = None,
         test_fn: Optional[Callable[[int, Optional[int]], None]] = None,
         stop_fn: Optional[Callable[[float], bool]] = None,
@@ -99,7 +100,7 @@ class OffpolicyTrainer(BaseTrainer):
             step_per_collect=step_per_collect,
             episode_per_test=episode_per_test,
             batch_size=batch_size,
-            update_per_step=update_per_step,
+            update_per_step=-1,
             train_fn=train_fn,
             test_fn=test_fn,
             stop_fn=stop_fn,
@@ -114,12 +115,18 @@ class OffpolicyTrainer(BaseTrainer):
             **kwargs,
         )
 
+        self.update_actor_per_step = update_actor_per_step
+        self.update_critic_per_step = update_critic_per_step
+
     def policy_update_fn(self, data: Dict[str, Any], result: Dict[str, Any]) -> None:
         """Perform off-policy updates."""
         assert self.train_collector is not None
-        for _ in range(round(self.update_per_step * result["n/st"])):
+        n_actor_updates = round(self.update_actor_per_step * result["n/st"])
+        n_critic_updates = round(self.update_critic_per_step * result["n/st"])
+        for j in range(max(n_actor_updates, n_critic_updates)):
             self.gradient_step += 1
-            losses = self.policy.update(self.batch_size, self.train_collector.buffer)
+            losses = self.policy.update(self.batch_size, self.train_collector.buffer, update_actor=j < n_actor_updates,
+                                        update_critic=j < n_critic_updates)
             self.log_update_data(data, losses)
 
 

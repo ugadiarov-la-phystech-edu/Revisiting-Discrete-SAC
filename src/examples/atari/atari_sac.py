@@ -47,7 +47,8 @@ def get_args():
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--step-per-epoch", type=int, default=50000)
     parser.add_argument("--step-per-collect", type=int, default=10)
-    parser.add_argument("--update-per-step", type=float, default=0.1)
+    parser.add_argument("--update-actor-per-step", type=float, default=0.1)
+    parser.add_argument("--update-critic-per-step", type=float, default=0.1)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--hidden-size", type=int, default=512)
     parser.add_argument("--training-num", type=int, default=10)
@@ -314,7 +315,8 @@ def test_discrete_sac(args=get_args()):
         stop_fn=stop_fn,
         save_best_fn=save_best_fn,
         logger=logger,
-        update_per_step=args.update_per_step,
+        update_actor_per_step=args.update_actor_per_step,
+        update_critic_per_step=args.update_critic_per_step,
         test_in_train=False,
         resume_from_log=args.resume_id is not None,
         save_checkpoint_fn=save_checkpoint_fn,
