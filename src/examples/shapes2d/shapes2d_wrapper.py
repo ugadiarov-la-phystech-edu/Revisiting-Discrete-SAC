@@ -1,3 +1,4 @@
+import cv2
 import gym
 import numpy as np
 
@@ -25,6 +26,22 @@ class ScaledFloatFrame(gym.ObservationWrapper):
         return (observation - self.bias) / self.scale
 
 
+class Grayscale(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        shape = (1, *env.observation_space.shape[:2])
+        self.observation_space = gym.spaces.Box(
+            low=np.min(env.observation_space.low),
+            high=np.max(env.observation_space.high),
+            shape=shape,
+            dtype=env.observation_space.dtype
+        )
+
+    def observation(self, observation):
+        gray = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
+        return gray[np.newaxis, ...]
+
+
 class ChannelsFirst(gym.ObservationWrapper):
     def __init__(self, env):
         super().__init__(env)
@@ -40,27 +57,30 @@ class ChannelsFirst(gym.ObservationWrapper):
         return np.moveaxis(observation, 2, 0)
 
 
-def wrap_shapes2d(env_id):
+def wrap_shapes2d(env_id, gray=False):
     env = gym.make(env_id)
-    env = ChannelsFirst(env)
+    if gray:
+        env = Grayscale(env)
+    else:
+        env = ChannelsFirst(env)
     env = ScaledFloatFrame(env)
 
     return env
 
 
-def make_env(task, seed, training_num, test_num):
-    env = wrap_shapes2d(task)
+def make_env(task, seed, training_num, test_num, gray=False):
+    env = wrap_shapes2d(task, gray)
     train_envs = ShmemVectorEnv(
         [
             lambda:
-            wrap_shapes2d(task)
+            wrap_shapes2d(task, gray)
             for _ in range(training_num)
         ]
     )
     test_envs = ShmemVectorEnv(
         [
             lambda:
-            wrap_shapes2d(task)
+            wrap_shapes2d(task, gray)
             for _ in range(test_num)
         ]
     )

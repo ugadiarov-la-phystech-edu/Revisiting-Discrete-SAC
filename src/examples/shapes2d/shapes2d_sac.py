@@ -58,6 +58,7 @@ def get_args():
     parser.add_argument("--rew-norm", type=int, default=False)
     parser.add_argument("--logdir", type=str, default="log")
     parser.add_argument("--render", type=float, default=0.)
+    parser.add_argument("--grayscale", action="store_true")
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -123,6 +124,7 @@ def test_discrete_sac(args=get_args()):
         args.seed,
         args.training_num,
         args.test_num,
+        gray=args.grayscale
     )
     args.state_shape = env.observation_space.shape or env.observation_space.n
     args.action_shape = env.action_space.shape or env.action_space.n
